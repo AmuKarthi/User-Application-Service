@@ -1,8 +1,11 @@
 package com.scb.loanapi.userapi.configuration;
 
+import java.util.Arrays;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.netflix.ribbon.RibbonClient;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -14,12 +17,18 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixCommand;
+import com.netflix.hystrix.contrib.javanica.annotation.HystrixProperty;
 import com.scb.loanapi.userapi.service.LoanUserService;
 
 @Configuration
-@CrossOrigin
+//@CrossOrigin(origins = "*",allowedHeaders = "*")
 @EnableWebSecurity
+@RibbonClient(name = "loan-user")
 public class UserWebSecurity extends WebSecurityConfigurerAdapter{
 	
 	Logger logger=LoggerFactory.getLogger(UserWebSecurity.class);
@@ -47,12 +56,19 @@ public class UserWebSecurity extends WebSecurityConfigurerAdapter{
 		auth.userDetailsService(loanUserService).passwordEncoder(bCryptPasswordEncoder);
 	}
 	
+	@HystrixCommand(fallbackMethod = "getconfigureFallback",
+			commandProperties = {
+					@HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "10000"),
+					@HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "5"),
+					@HystrixProperty(name = "circuitBreaker.errorThresholdPercentage", value = "50"),
+					@HystrixProperty(name = "circuitBreaker.sleepWindowInMilliseconds", value = "1000")
+			})
 	@Override
 	protected void configure(HttpSecurity http) throws Exception {
 		http.csrf().disable();
 		logger.info("gatewayIP from env----->"+env.getProperty("gateway.ip"));
 		//http.hasIpAddress(env.getProperty("gateway.ip")).and()
-		http.authorizeRequests().antMatchers(env.getProperty("login.url.path")).
+		http.cors().and().authorizeRequests().antMatchers(env.getProperty("login.url.path")).
 		permitAll().and()
 		.addFilter(getAuthenticationFilter());
 		//http.addFilterBefore(getAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
@@ -80,7 +96,18 @@ public class UserWebSecurity extends WebSecurityConfigurerAdapter{
 	public AuthenticationManager authenticationManagerBean() throws Exception {
 	    return super.authenticationManagerBean();
 	}
+	/*
+	 * @Bean CorsConfigurationSource corsConfigurationSource() { CorsConfiguration
+	 * configuration = new CorsConfiguration();
+	 * configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
+	 * configuration.setAllowedMethods(Arrays.asList("GET", "POST"));
+	 * UrlBasedCorsConfigurationSource source = new
+	 * UrlBasedCorsConfigurationSource(); source.registerCorsConfiguration("/**",
+	 * configuration); return source; }
+	 */
 	
-	
+	protected RuntimeException getconfigureFallback(HttpSecurity http) {
+		return new RuntimeException("Login Authentication Exception");
+	}
 	
 }
